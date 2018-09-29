@@ -1,0 +1,506 @@
+<html>
+<head>
+<style type="text/css">
+   html, body {
+      height: 100%
+   }
+   .page {
+      display: flex;
+      flex-flow: row;
+   }
+   .tool-col {
+      display: flex;
+      flex-flow: column;   
+   }
+   .tool {
+      border: 1px solid black;
+      margin: 0 5px 5px 0;
+      padding: 5px;
+   }
+   .tool-heading {
+      display: flex;
+      flex-flow: column;   
+      flex-grow: 100%;
+      background-color: peru;
+      text-align: center;
+   }
+   .tool-entry {      
+   }
+   .canvas-col {
+      height: 100%;
+      flex: 1 1 auto;
+      border: 1px solid grey;
+   }
+</style>
+</head>
+<body>
+   <h1>Hex Library Util</h1>
+   
+   <div class="page">
+      <div class="tool-col">
+         <div class="tool">
+            <span class="tool-heading">Hex Size</span>
+            <div class="tool-entry">
+               <!--  change, final value; input, incremental value -->
+               <label for="width">width</label>
+               <input type="range" id="width" min="10" max="100" defaultValue="50" step="1" oninput="changeHex()"/>
+            </div>
+            <div class="tool-entry">
+               <label for="height">height</label>
+               <input type="range" id="height" min="10" max="100" defaultValue="50" step="1" oninput="changeHex()"/>
+            </div>            
+         </div>
+         <div class="tool" onclick="changeAction()">
+            <span class="tool-heading">Acton</span>
+            <div class="tool-entry">
+               <input type="radio" name="action" id="id1" checked/>
+               <label for="id1">Line</label>
+            </div>
+            <div class="tool-entry">
+               <input type="radio" name="action" id="id2" />
+               <label for="id2">Adjacent</label>
+            </div>
+            <div class="tool-entry">
+               <input type="radio" name="action" id="id3" />
+               <label for="id3">Remove</label>
+            </div>
+            <div class="tool-entry">
+               <input type="radio" name="action" id="id4" />
+               <label for="id4">Add</label>
+            </div>
+         </div>
+         <div class="tool">
+            <span class="tool-heading">Scroll</span>            
+            <p class="tool-entry">Scroll with w,a,s,d</p>
+         </div>
+         <div class="tool">
+            <span class="tool-heading">Style</span>
+            <div class="tool-entry" onclick="clickCoords()">
+               <input type="checkbox" name="coords" id="idcoords" checked/>
+               <label for="idcoords">Display Coords</label>
+            </div>
+            <div class="tool-entry" onclick="clickPoints()">
+               <input type="checkbox" name="points" id="idpoints" unchecked/>
+               <label for="idpoints">Display Points</label>
+            </div>
+            <div class="tool-entry" onclick="clickFill()">
+               <input type="checkbox" name="fill" id="idfill" unchecked/>
+               <input type="color" name="hexcolor" id="idhexcolor" value="#bfff80" oninput="clickFill()"/>
+               <label for="idfill">Fill Hex</label>
+            </div>
+            <div class="tool-entry" onclick="clickStroke()">
+               <input type="checkbox" name="stroke" id="idstroke" checked/>
+               <label for="idstroke">Stroke Hex</label>
+            </div>
+            <div class="tool-entry">
+               <input type="number" name="line" id="idline" 
+                      min=0.1 max=10.0 step=0.1 value=1.3 
+                      onchange="changeLineSize()" onclick="changeLineSize()"/>
+               <label for="idline">Line Width</label>
+            </div>
+         </div>
+      </div>
+      <div class="canvas-col" id="canvas-div" onres>
+         <canvas id="canvas-view" />
+      </div>
+   </div>
+   
+   <script type="text/javascript" src="hex.js"></script>
+   
+   <script type="text/javascript">
+      var canvas = document.getElementById("canvas-view");
+      var canvasdiv = document.getElementById("canvas-div")
+      var ctx = canvas.getContext("2d");
+      var hexMap = new HexMap();
+      var points = [];
+      var firstHex = null, showHexes = [], addHex = null;
+      var action = 'line';
+      var viewport = {x:0, y:0};
+      var isFillHex, hexFillColor; clickFill();
+      var isStrokeHex; clickStroke();
+      var lineWidth; changeLineSize();
+      var isShowPoints; clickPoints();
+      var isShowCoords; clickCoords();
+      
+      // Map keypresses to actions
+      var keymap = {
+         65 : 'left',         // 'a'
+         68 : 'right',        // 'd'
+         87 : 'up',           // 'w'
+         83 : 'down'          // 's'
+      };
+      
+      // Holds the keys currently pressed
+      var keydown = [];
+
+      // Canvas defaults to 300x150 unless set
+      setCanvasToDiv();
+      
+      changeHex();
+      
+      for (x=0; x<10; x++) {
+         for (y=0; y<10; y++) {
+            hexMap.addHex({id: {q:x, r:y}});
+         }
+      }
+      
+      // ------------------------------------------------------------------
+      // Update the viewport based upon keys pressed
+      // ------------------------------------------------------------------
+      setInterval(function() {
+         var velocity = 3;
+
+         if (keydown.up === true) {
+            viewport.y += velocity;
+         }
+         
+         if (keydown.down === true) {
+            viewport.y -= velocity;
+         }
+
+         if (keydown.left === true) {
+            viewport.x += velocity;
+         }
+         
+         if (keydown.right === true) {
+            viewport.x -= velocity;
+         }
+         
+      }, 1/60 * 1000);
+      
+      // ------------------------------------------------------------------
+      // Draw
+      //
+      // https://stackoverflow.com/questions/29371695/does-canvas-support-floating-point-numbers-when-drawing-line-or-arc
+      //
+      // Paths are internal vectors that must be rasterized to be displayed
+      // on the canvas bitmap.
+      //
+      // Sub-Pixelling.
+      // If a x,y point is a fraction then it can be rounded up or down.
+      // Alternatively the pixel can be rendered in a blended colour depending
+      // upon the amount contributed by surrounding pixels. For instance,
+      // a value of 3.5 would be a 50/50 mix of the colours around it. But a value
+      // of 3.2 would be a 20/80 mix.
+      //
+      // In the case of canvas the shapes are interpolated with the alpha channel.
+      // Then blended and composited using Porter-Duff with the existing content.
+      //
+      // ------------------------------------------------------------------
+      setInterval(function() {
+         
+         var coords = [], xcoord, ycoord, t, disp = [];
+         
+         ctx.setTransform(1, 0, 0, 1, 0, 0);         
+         ctx.clearRect(0, 0, canvas.width, canvas.height);
+                  
+         ctx.translate(viewport.x, viewport.y);
+         
+         hexMap.draw(function(h, centrePt, corners) {
+            var fill = isFillHex;
+
+            // Default Hex styles
+            ctx.strokeStyle = 'black';
+            ctx.fillStyle = hexFillColor;
+
+            // Override styles for selected tool
+            if (showHexes.find(function(e) {
+               return (e.getId() === h.getId());
+            }) !== undefined) {
+               ctx.fillStyle = 'green';
+               fill = true;
+            }               
+                                                
+            ctx.lineWidth = lineWidth;
+
+            ctx.beginPath();
+            
+            t = 0;
+            
+            corners.forEach(function(pt) {
+                               
+               // Use Floating points
+               // xcoord = pt.x;
+               // ycoord = pt.y;
+               
+               // Convert to integer
+               // xcoord = Math.floor(pt.x);
+               // ycoord = Math.floor(pt.y);
+               
+               // Quicker way to convert to integer
+               xcoord = (0.5 + pt.x) | 0;
+               ycoord = (0.5 + pt.y) | 0;
+
+               ctx.lineTo(xcoord, ycoord);     
+               
+               disp[t] = {
+                  xcoord: (xcoord + centrePt.x)/2,
+                  ycoord: (ycoord + centrePt.y)/2,
+                  text: '(' + xcoord + ',' + ycoord + ')'
+               };
+               t++;
+            })
+            
+            ctx.closePath();
+            
+            if (fill) {
+               ctx.fill();
+            }
+            if (isStrokeHex) {
+               ctx.stroke();               
+            }
+            
+            ctx.strokeStyle = 'black';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = '12px sans serif';
+            ctx.lineWidth = 0.5;
+
+            if (isShowCoords) {
+               ctx.strokeText(h.getId(), centrePt.x, centrePt.y);
+            }
+
+            if (isShowPoints) {
+               disp.forEach(function(d) {
+                  ctx.strokeText(d.text, d.xcoord, d.ycoord);  
+               });
+            }
+            
+         });
+
+         once = false;
+         
+         if (addHex !== null) {
+            ctx.fillStyle = 'rgba(150, 0, 0, 0.5)';
+            ctx.beginPath();
+            hexMap
+               .getLayout()
+               .getCorners(addHex)
+               .forEach(function(pt) {
+                  ctx.lineTo(pt.x, pt.y);
+            });
+            ctx.closePath();
+            ctx.fill();
+         }
+      }, 1/40 * 1000);
+      
+      // ------------------------------------------------------------------
+      // Translate Window coords to Canvas coords
+      // ------------------------------------------------------------------
+      function translatePixel(e) {
+         /**
+          * This script finds the real position of an element,
+          * so if you resize the page and run the script again,
+          * it points to the correct new position of the element.
+          */         
+         var position = function(el) {
+            "use strict";
+            var pos;
+
+            // Apply offsets of all parents
+            for (pos = [0, 0]; el; el = el.offsetParent) {
+               pos[0] += el.offsetLeft - el.scrollLeft;
+               pos[1] += el.offsetTop - el.scrollTop;
+            }
+            return pos;
+         };
+         
+         var canvasOffset = position(canvas);
+            x = e.clientX - canvasOffset[0] - viewport.x,
+            y = e.clientY - canvasOffset[1] - viewport.y;
+         
+         return {x: x, y: y};         
+      };
+      
+      // ------------------------------------------------------------------
+      // Hex from Pixel
+      // ------------------------------------------------------------------
+      function pixelToHex(e) {
+         return hexMap.selectHex(translatePixel(e));
+      }
+      
+      // ------------------------------------------------------------------
+      // Key Events
+      // ------------------------------------------------------------------
+      
+      // Canvas can not get focus so can not listen for keypresses
+      window.addEventListener("keydown", function (e) {
+         keydown[keymap[e.keyCode]] = true;                   
+      });
+
+      // Canvas can not get focus so can not listen for keypresses
+      window.addEventListener("keyup", function (e) {
+         keydown[keymap[e.keyCode]] = false; 
+      });
+         
+      
+      // ------------------------------------------------------------------
+      // Mouse Move
+      // ------------------------------------------------------------------
+      canvas.addEventListener("mousemove", function(e) {         
+         selectedHex = pixelToHex(e);
+
+         if (action == 'add') {
+            addHex = (selectedHex == null)
+               ? hexMap.getLayout().fromPixel(translatePixel(e)) 
+               : null;
+         }
+         
+         if (selectedHex === null) {
+            if (action !== 'line') {
+               showHexes = [];
+            }
+            return;
+         }
+         
+         if (action == 'adjacent') {
+            showHexes = hexMap.getAdjacent(selectedHex);
+            // add in the center hex as well
+            showHexes.push(selectedHex);
+         } else if (action == 'remove') {
+            showHexes = [ selectedHex ];
+         } else if (action == 'line') {
+            if (firstHex == null) {
+               showHexes = [];
+               showHexes.push(selectedHex);
+            } else {
+               showHexes = hexMap.line(firstHex, selectedHex);
+            }
+         }   
+      });
+      
+      // ------------------------------------------------------------------
+      // Mouse Click
+      // ------------------------------------------------------------------
+      canvas.addEventListener("click", function(e) {
+         var h = pixelToHex(e),
+             line = [];
+         
+         if (h !== null) {
+            if (action == 'remove') {
+               hexMap.remove(h);
+               selectedHex = null;
+               showHexes = [];
+            } else if (action == 'line') {
+               if (firstHex !== null) {
+                  showHexes = [];
+                  if (selectedHex !== null) {
+                     showHexes.push(selectedHex);
+                  }
+               }
+               firstHex = selectedHex;
+            }
+         } else {
+            if (action == 'add') {
+               hexMap.addHex({ hex: addHex});
+               addHex = null;
+            }
+         }
+         
+      });
+      
+      // ------------------------------------------------------------------
+      // Resize Window
+      // ------------------------------------------------------------------
+      var resizeTimeout;
+      
+      window.addEventListener("resize", function() {
+         // ignore resize events as long as an actualResizeHandler execution is in the queue
+         if ( !resizeTimeout ) {
+            resizeTimeout = setTimeout(function() {
+               resizeTimeout = null;
+               
+               // throttled resize
+               setCanvasToDiv();
+
+            // The actualResizeHandler will execute at a rate of 15fps
+            }, 66);
+         }
+      }, false);
+      
+      function setCanvasToDiv() {
+         canvas.height = canvasdiv.clientHeight;
+         canvas.width = canvasdiv.clientWidth;
+      };
+
+
+      // ------------------------------------------------------------------
+      // Change Action
+      // ------------------------------------------------------------------
+      function changeAction() {
+         
+         var oldAction = action;
+         
+         if (document.getElementById("id1").checked) {
+            action = 'line';
+         } else if (document.getElementById("id2").checked) {
+            action = 'adjacent';
+         } else if (document.getElementById("id3").checked) {
+            action = 'remove';
+         } else if (document.getElementById("id4").checked) {
+            action = 'add';
+         }
+         
+         if (oldAction !== action) {
+           // console.log('Action: ' + action);
+            firstHex = null;
+            secondHex = null;
+            showHexes = [];
+            addHex = null;
+         }
+      };
+      
+      // ------------------------------------------------------------------
+      // Hex Size Ranges
+      // ------------------------------------------------------------------
+      function changeHex(id) {
+         hexMap.setLayout(
+            { x:100, y:100}, 
+            { 
+               sizex: document.getElementById('width').value, 
+               sizey: document.getElementById('height').value
+            });
+      }
+      
+      // ------------------------------------------------------------------
+      // Fill Hex
+      // ------------------------------------------------------------------
+      function clickFill() {
+         isFillHex = document.getElementById('idfill').checked;
+         hexFillColor = document.getElementById('idhexcolor').value;
+      }
+      
+      // ------------------------------------------------------------------
+      // Fill Stroke
+      // ------------------------------------------------------------------
+      function clickStroke() {
+         isStrokeHex = document.getElementById('idstroke').checked;
+         return isStrokeHex;
+      }
+      
+      // ------------------------------------------------------------------
+      // Stroke Line Size
+      // ------------------------------------------------------------------
+      function changeLineSize() {
+         lineWidth = document.getElementById('idline').value;
+         return lineWidth;
+      }
+
+      // ------------------------------------------------------------------
+      // Show Points as text labels
+      // ------------------------------------------------------------------
+      function clickPoints() {
+         isShowPoints = document.getElementById('idpoints').checked;
+         return isShowPoints;
+      }
+      
+      // ------------------------------------------------------------------
+      // Show Coords in centre of hex
+      // ------------------------------------------------------------------
+      function clickCoords() {
+         isShowCoords = document.getElementById('idcoords').checked;
+         return isShowCoords;
+      }
+      
+   </script>
+</body>
