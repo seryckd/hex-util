@@ -3,6 +3,8 @@
 Originally a way to test hex library for drawing hexes, but is evoloving into a more
 useful utility.
 
+https://seryckd.github.io/hex-util/
+
 ## Drawing
 
 Drawing to canvas has issues with lines matching up. Even when the points for the 
